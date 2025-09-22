@@ -3,8 +3,8 @@ import requests
 
 
 class MyStatSDK:
-    TOKEN_LIFETIME = 7200  # 2 часа
-    pause = 0.5
+    TOKEN_LIFETIME = 7200  # 2 часа — время жизни токена
+    pause = 0.5  # Задержка между запросами, чтобы не перегружать API
 
     def __init__(self, username, password, proxies=None):
         self.username = username
@@ -14,7 +14,11 @@ class MyStatSDK:
         self.token_time = 0
 
     def login(self):
-        """Авторизация и получение токена"""
+        """
+        Авторизация на сервере MyStat.
+        Отправляем логин и пароль, получаем токен доступа (Bearer token).
+        Сохраняем время получения токена, чтобы отслеживать срок его жизни.
+        """
         time.sleep(self.pause)
         url = 'https://mapi.itstep.org/v1/mystat/auth/login'
         try:
@@ -32,14 +36,24 @@ class MyStatSDK:
             return False
 
     def _headers(self):
+        """Возвращает заголовки для авторизации в запросах"""
         return {'Authorization': f'Bearer {self.session_token}'}
 
     def _is_token_valid(self):
+        """
+        Проверяет, действителен ли текущий токен.
+        Возвращает True, если токен существует и его срок не истёк.
+        """
         return self.session_token and (time.time() - self.token_time < self.TOKEN_LIFETIME)
 
     def _get(self, url):
+        """
+        Универсальный метод для выполнения GET-запросов.
+        Если токен недействителен, сначала выполняем авторизацию.
+        Возвращает данные в формате JSON или None при ошибке.
+        """
         if not self._is_token_valid():
-            if not self.login():
+            if not self.login():  # Если не удалось авторизоваться, прерываем выполнение
                 return None
         try:
             response = requests.get(url, headers=self._headers(), proxies=self.proxies)
