@@ -1,4 +1,4 @@
-````markdown
+
 # MyStat — Электронный журнал
 
 **MyStat** — это клиентское приложение для работы с API электронного журнала: оценки, посещаемость, средний балл, домашние задания и таблица лидеров.  
@@ -28,29 +28,34 @@
 1. Скачайте репозиторий
 ````
 
-2. Создаём и активируем виртуальное окружение
+#### 2. Создаём и активируем виртуальное окружение
 Windows (cmd):
-python -m venv venv
-venv\Scripts\activate
+   ```bash
+   python -m venv venv
+      venv\Scripts\activate
+   ```
 
-Windows (PowerShell):
-python -m venv venv
-venv\Scripts\Activate.ps1
+```
+   Windows (PowerShell):
+      python -m venv venv
+      venv\Scripts\Activate.ps1
+```
 
-MacOS / Linux:
-python3 -m venv venv
-source venv/bin/activate
-
+```
+   MacOS / Linux:
+      python3 -m venv venv
+      source venv/bin/activate
+```
 
 После активации слева в терминале появится (venv) — это значит, что окружение активно.
 
-# 3. Устанавливаем зависимости
+#### 3. Устанавливаем зависимости
 Если есть файл requirements.txt, выполни:
    ```bash
    pip install -r requirements.txt
    ```
 
-# Или вручную:
+#### Или вручную:
    ```bash
    pip install PyQt5 requests
    ```
