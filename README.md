@@ -32,21 +32,21 @@
 Windows (cmd):
    ```
    python -m venv venv
-      venv\Scripts\activate
+   venv\Scripts\activate
    ```
 
 
    Windows (PowerShell):
 ```
-      python -m venv venv
-      venv\Scripts\Activate.ps1
+python -m venv venv
+venv\Scripts\Activate.ps1
 ```
 
 
    MacOS / Linux:
 ```
-      python3 -m venv venv
-      source venv/bin/activate
+python3 -m venv venv
+source venv/bin/activate
 ```
 
 После активации слева в терминале появится (venv) — это значит, что окружение активно.
