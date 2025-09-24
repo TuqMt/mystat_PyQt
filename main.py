@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
-from core import MyStatSDK  # <-- подключаем твой SDK
+from core import MyStatSDK  # <-- подключаем SDK
 
 
 class Card(QFrame):
@@ -110,3 +110,4 @@ if __name__ == "__main__":
     window = MyStatApp(sdk)
     window.show()
     sys.exit(app.exec_())
+
