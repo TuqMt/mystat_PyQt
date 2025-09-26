@@ -1,9 +1,14 @@
+""" CДЕЛАТЬ API ДЛЯ ПОЛУЧЕНИЯ НАЗВАНИЙ ДЗ И СКАЧИВАТЬ ПО ДАТЕ
+    ДИЗАЙН С МАЙСТАТ 
+        
+    """
 import time
 import requests
 import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from typing import List
+import os
 
 logger = logging.getLogger("MyStatSDK")
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -190,7 +195,20 @@ class MyStatSDK:
                 return [done, overdue]
 
         return [0, 0]
+    def get_homeworks_names(self) -> List[str]:
+        url = f"https://mapi.itstep.org/v1/mystat/aqtobe/homework/list?status=3&limit=100&sort=-hw.time"
+        data = self._get(url)
+        lessons_list = []
+        if isinstance(data, dict):
+            lessons = data.get("data", []) if data.get("data") else []
+            if isinstance(lessons, list):
+                for lesson in lessons:
+                    if isinstance(lesson, dict):
+                        subject = lesson.get("creation_time", "Без названия")
+                        lessons_list.append(subject)
 
+        return lessons_list
+    
     def _parse_homework_list(self, arr: List[Any]) -> List[int]:
         done = overdue = 0
         for item in arr:
@@ -256,3 +274,116 @@ class MyStatSDK:
                 lessons_list.append(f"{date} — {subject}")
 
         return lessons_list
+    
+    def download_homework_by_date(self, date_filter: str, folder: str = "homeworks"):
+        """
+        Скачивает ДЗ только за указанную дату.
+        :param date_filter: Дата в формате YYYY-MM-DD
+        :param folder: Папка для сохранения файлов
+        """
+        import requests
+        import os
+        from datetime import datetime
+
+        os.makedirs(folder, exist_ok=True)
+
+        url = "https://mapi.itstep.org/v1/mystat/aqtobe/homework/list?status=3&limit=100&sort=-hw.time"
+        data = self._get(url, use_cache=False)
+        if not data or "data" not in data:
+            print("Ошибка: не удалось получить список ДЗ")
+            return
+
+        homeworks = data.get("data", [])
+        target_hw = None
+        for hw in homeworks:
+            hw_time = hw.get("creation_time")
+            if not hw_time:
+                continue
+
+            try:
+                dt = datetime.fromtimestamp(int(hw_time))
+            except:
+                try:
+                    dt = datetime.fromisoformat(str(hw_time).replace("Z", "+00:00"))
+                except:
+                    continue
+
+            if dt.strftime("%Y-%m-%d") == date_filter:
+                target_hw = hw
+                break
+
+        if not target_hw:
+            print(f"Нет ДЗ за дату {date_filter}")
+            return
+
+        f_url = target_hw.get("file_path")
+        if not f_url:
+            print(f"У ДЗ за {date_filter} нет прикреплённого файла")
+            return
+
+        try:
+            r = requests.get(f_url, headers=self._headers(), stream=True, timeout=10)
+            if r.status_code == 200:
+                cd = r.headers.get("Content-Disposition", "")
+                ext = ""
+                if "filename=" in cd:
+                    fname = cd.split("filename=")[-1].strip().strip('"')
+                    if "." in fname:
+                        ext = "." + fname.split(".")[-1]
+
+                if not ext and "." in f_url:
+                    ext = "." + f_url.split(".")[-1]
+
+                filename = f"{date_filter}{ext or '.bin'}"
+                filepath = os.path.join(folder, filename)
+
+                counter = 1
+                while os.path.exists(filepath):
+                    filename = f"{date_filter}_{counter}{ext or '.bin'}"
+                    filepath = os.path.join(folder, filename)
+                    counter += 1
+
+                with open(filepath, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+
+                print(f"Сохранено: {filepath}")
+            else:
+                print(f"Ошибка загрузки {f_url}: {r.status_code}")
+
+        except Exception as e:
+            print(f"Не удалось скачать {f_url}: {e}")
+    def get_id_hw(self):
+        url = f"https://mapi.itstep.org/v1/mystat/aqtobe/homework/list?status=3&limit=100&sort=-hw.time"
+        data = self._get(url)
+        ids_list = []
+        if isinstance(data, dict):
+            lessons = data.get("data", []) if data.get("data") else []
+            if isinstance(lessons, list):
+                for lesson in lessons:
+                    if isinstance(lesson, dict):
+                        subject = lesson.get("id", "Без названия")
+                        ids_list.append(subject)
+
+        return ids_list
+
+    def upload_homework(self, homework_id: str, file_path: str, comment: str = ""):
+        url='https://mapi.itstep.org/v1/mystat/aqtobe/homework/create'
+        data = {
+            "id": homework_id,
+            "homework_id": homework_id,
+            "comment": comment
+        }
+        requests.post(url, headers=self._headers(), data=data, files={"file": open(file_path, "rb")})
+        print(f"Загружено ДЗ {homework_id} с файлом {file_path} и комментарием '{comment}'")
+
+if __name__ == "__main__":
+    sdk = MyStatSDK("foros_md93", "gHrh7w*6")
+    if sdk.login():
+       
+        sdk.get_homeworks_names()
+        print(sdk.get_homeworks_names())
+        
+    else:
+        print("Не удалось войти в систему.")
