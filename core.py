@@ -354,6 +354,7 @@ class MyStatSDK:
 
         except Exception as e:
             print(f"Не удалось скачать {f_url}: {e}")
+
     def get_id_hw(self):
         url = f"https://mapi.itstep.org/v1/mystat/aqtobe/homework/list?status=3&limit=100&sort=-hw.time"
         data = self._get(url)
@@ -368,22 +369,109 @@ class MyStatSDK:
 
         return ids_list
 
-    def upload_homework(self, homework_id: str, file_path: str, comment: str = ""):
-        url='https://mapi.itstep.org/v1/mystat/aqtobe/homework/create'
-        data = {
-            "id": homework_id,
-            "homework_id": homework_id,
-            "comment": comment
+    def get_homeworks_list(self):
+        url = "https://mapi.itstep.org/v1/mystat/aqtobe/homework/list?status=3&limit=100&sort=-hw.time"
+        data = self._get(url)
+        result = []
+        if isinstance(data, dict):
+            lessons = data.get("data", []) if data.get("data") else []
+            if isinstance(lessons, list):
+                for lesson in lessons:
+                    if isinstance(lesson, dict):
+                        hw_id = lesson.get("id")
+                        title = lesson.get("creation_time", "Без названия")
+                        if hw_id is not None:
+                            result.append({"id": hw_id, "title": title})
+        return result
+
+    def upload_to_fs(self, file_path: str, directory: str = None) -> str:
+        """Загружает файл на файловый сервер ITStep и возвращает URL"""
+
+        if not file_path or not os.path.exists(file_path):
+            raise FileNotFoundError(f"Файл '{file_path}' не найден")
+
+        fs_info = self.upls_fs()
+        token = fs_info["token"]
+        if directory is None:
+            directory = fs_info["directories"]["homeworkDirId"]
+
+        hosts = [
+            "https://fsx3.itstep.org",
+            "https://fsx2.itstep.org",
+            "https://fsx1.itstep.org",
+            "https://fs3.itstep.org",
+            "https://fs2.itstep.org",
+            "https://fs1.itstep.org",
+        ]
+
+        headers = {
+            "Authorization": f"Bearer {token}"
         }
-        requests.post(url, headers=self._headers(), data=data, files={"file": open(file_path, "rb")})
-        print(f"Загружено ДЗ {homework_id} с файлом {file_path} и комментарием '{comment}'")
+
+        errors = []
+        for base in hosts:
+            url = f"{base}/api/v1/files"
+            try:
+                with open(file_path, "rb") as f:
+                    files = {
+                        "files[]": (os.path.basename(file_path), f)
+                    }
+                    data = {
+                        "directory": directory
+                    }
+                    r = requests.post(url, headers=headers, data=data, files=files, timeout=40)
+                    if r.status_code == 200:
+                        js = r.json()
+                        if isinstance(js, list) and js and js[0].get("link"):
+                            return js[0]["link"]
+                    errors.append(f"{url} — HTTP {r.status_code}: {r.text[:200]}")
+            except Exception as e:
+                errors.append(f"{url} — {e}")
+
+        raise RuntimeError("FS upload failed. Tried:\n" + "\n".join(errors))
+
+
+    def upload_homework(self, homework_id: int, file_path: str, comment: str = ""):
+        """Загружает ДЗ с файлом: сначала на FS, потом отправляет ссылку в MyStat"""
+        if not file_path or not os.path.exists(file_path):
+            print("Файл не выбран или не существует")
+            return
+
+        try:
+
+            file_url = self.upload_to_fs(file_path)
+
+            url = f"https://mapi.itstep.org/v1/mystat/aqtobe/homework/create"
+            payload = {
+                "answerText": comment,
+                "filename": file_url,
+                "id": homework_id
+            }
+
+            r = requests.post(url, headers=self._headers(), json=payload, timeout=60)
+            if r.status_code in (200, 201):
+                print(f"ДЗ {homework_id} успешно отправлено: {file_url}")
+            else:
+                print(f"Ошибка при создании ДЗ: {r.status_code} — {r.text}")
+
+        except Exception as e:
+            print(f"Ошибка при загрузке ДЗ: {e}")
+
+
+    def upls_fs(self):
+        url='https://mapi.itstep.org/v1/mystat/aqtobe/user/file-token'
+        data = self._get(url)
+        return data #['directories']['homeworkDirId']
 
 if __name__ == "__main__":
     sdk = MyStatSDK("foros_md93", "gHrh7w*6")
     if sdk.login():
-       
+        print(sdk.upls_fs())
         sdk.get_homeworks_names()
         print(sdk.get_homeworks_names())
         
     else:
         print("Не удалось войти в систему.")
+
+
+      
