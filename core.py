@@ -204,7 +204,7 @@ class MyStatSDK:
             if isinstance(lessons, list):
                 for lesson in lessons:
                     if isinstance(lesson, dict):
-                        subject = lesson.get("creation_time", "Без названия")
+                        subject = lesson.get("creation_time")
                         lessons_list.append(subject)
 
         return lessons_list
@@ -270,7 +270,7 @@ class MyStatSDK:
         for lesson in all_lessons:
             if isinstance(lesson, dict):
                 date = lesson.get("date", "Неизвестно")
-                subject = lesson.get("subject", "Без названия")
+                subject = lesson.get("subject_name", "Без названия")+'-'+lesson.get("date", "")
                 lessons_list.append(f"{date} — {subject}")
 
         return lessons_list
@@ -364,7 +364,7 @@ class MyStatSDK:
             if isinstance(lessons, list):
                 for lesson in lessons:
                     if isinstance(lesson, dict):
-                        subject = lesson.get("id", "Без названия")
+                        subject = lesson.get("id")
                         ids_list.append(subject)
 
         return ids_list
@@ -379,7 +379,7 @@ class MyStatSDK:
                 for lesson in lessons:
                     if isinstance(lesson, dict):
                         hw_id = lesson.get("id")
-                        title = lesson.get("creation_time", "Без названия")
+                        title = lesson.get("creation_time")
                         if hw_id is not None:
                             result.append({"id": hw_id, "title": title})
         return result
