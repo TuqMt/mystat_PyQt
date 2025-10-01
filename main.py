@@ -1,10 +1,12 @@
+# main_sidebar.py
 import sys
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QFrame, QListWidget, QGridLayout, QPushButton, QStackedWidget, QTextEdit, QSizePolicy, QScrollArea, QDialog, QFileDialog, QCalendarWidget
+    QFrame, QListWidget, QGridLayout, QPushButton, QStackedWidget, QTextEdit,
+    QSizePolicy, QScrollArea, QDialog, QFileDialog, QCalendarWidget, QToolButton
 )
-from PyQt5.QtCore import Qt, QRunnable, QThreadPool, pyqtSignal, QObject, QDate
-from PyQt5.QtGui import QFont, QTextCharFormat, QColor
+from PyQt5.QtCore import Qt, QRunnable, QThreadPool, pyqtSignal, QObject, QDate, QLocale
+from PyQt5.QtGui import QFont, QTextCharFormat, QColor, QIcon
 from datetime import datetime, timedelta
 from core import MyStatSDK
 from typing import List
@@ -115,7 +117,7 @@ class HomeworkDialog(QDialog):
         self.selected_file = None  # выбранный файл
 
         self.setWindowTitle("Домашнее задание")
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(420)
         self.setStyleSheet("""
             QDialog {
                 background: white;
@@ -167,6 +169,7 @@ class HomeworkDialog(QDialog):
 
     def open_task(self):
         try:
+            # пытаемся загрузить прикреплённые файлы (sdk должен уметь это)
             self.sdk.download_homework_by_date(self.hw_title)
             print("Задание загружено")
         except Exception as e:
@@ -198,8 +201,10 @@ class MyStatApp(QMainWindow):
         super().__init__()
         self.sdk = sdk
         self.setWindowTitle("MyStat Dashboard")
-        self.setGeometry(200, 100, 1200, 650)
+        self.setGeometry(200, 100, 1200, 680)
         self.setStyleSheet("background-color: white;")
+        self.setWindowIcon(QIcon("favicon.ico"))
+        self._schedule_by_date = {}
 
         main_widget = QWidget()
         main_layout = QHBoxLayout(main_widget)
@@ -276,8 +281,45 @@ class MyStatApp(QMainWindow):
         dash_layout.addWidget(self.leader_list)
         self.pages.addWidget(page_dashboard)
 
-        # Page 2: Schedule
-        self._create_schedule_page()
+        # Page 2: Schedule (calendar view)
+        page_schedule = QWidget()
+        sched_layout = QVBoxLayout(page_schedule)
+
+        # top nav (prev / month label / next)
+        nav_layout = QHBoxLayout()
+        self.prev_btn = QToolButton()
+        self.prev_btn.setText("◀")
+        self.prev_btn.setFixedSize(34, 34)
+        self.next_btn = QToolButton()
+        self.next_btn.setText("▶")
+        self.next_btn.setFixedSize(34, 34)
+        self.month_label = QLabel("")
+        self.month_label.setAlignment(Qt.AlignCenter)
+        self.month_label.setFont(QFont("Segoe UI", 14, QFont.Bold))
+        nav_layout.addWidget(self.prev_btn)
+        nav_layout.addWidget(self.month_label, stretch=1)
+        nav_layout.addWidget(self.next_btn)
+        sched_layout.addLayout(nav_layout)
+
+        # calendar
+        self.calendar = QCalendarWidget()
+        self.calendar.setGridVisible(True)
+        self.calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
+        self.calendar.setNavigationBarVisible(False)  # прячем стандартный бар (используем свои кнопки)
+        self.calendar.setLocale(QLocale(QLocale.Russian))
+        self.calendar.setStyleSheet("""
+            QCalendarWidget QAbstractItemView {
+                selection-background-color: #e0bbff;
+                font-size: 12px;
+            }
+        """)
+        sched_layout.addWidget(self.calendar)
+
+        # lessons list for selected day
+        self.schedule_list = QListWidget()
+        sched_layout.addWidget(self.schedule_list)
+
+        self.pages.addWidget(page_schedule)
 
         # Page 3: Homework
         page_hw = QWidget()
@@ -300,79 +342,23 @@ class MyStatApp(QMainWindow):
         hw_layout.addWidget(scroll_area)
         self.pages.addWidget(page_hw)
 
-        # ---- Signals ----
+        # signals
         self.btn_main.clicked.connect(lambda: self.pages.setCurrentIndex(0))
         self.btn_schedule.clicked.connect(lambda: self.pages.setCurrentIndex(1))
         self.btn_hw.clicked.connect(lambda: self.pages.setCurrentIndex(2))
         self.btn_refresh.clicked.connect(self.load_all_data)
 
+        self.prev_btn.clicked.connect(lambda: self.shift_month(-1))
+        self.next_btn.clicked.connect(lambda: self.shift_month(1))
+        self.calendar.selectionChanged.connect(self.show_day_lessons)
+
         self.pool = QThreadPool.globalInstance()
         self.load_all_data()
 
-    def _create_schedule_page(self):
-        page_schedule = QWidget()
-        sched_layout = QVBoxLayout(page_schedule)
+        # установить начальную метку месяца
+        self.update_month_label()
 
-        schedule_label = QLabel("Расписание")
-        schedule_label.setFont(QFont("Segoe UI", 12, QFont.Bold))
-        sched_layout.addWidget(schedule_label)
-
-        self.calendar = QCalendarWidget()
-        self.calendar.setGridVisible(True)
-        self.calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
-        self.calendar.setHorizontalHeaderFormat(QCalendarWidget.ShortDayNames)
-        self.calendar.setStyleSheet("""
-            QCalendarWidget QToolButton {
-                background-color: #e0bbff;
-                color: black;
-                font-size: 14px;
-                border-radius: 5px;
-                margin: 5px;
-            }
-            QCalendarWidget QToolButton:hover {
-                background-color: #d1aaff;
-            }
-            QCalendarWidget QAbstractItemView:enabled {
-                selection-background-color: #e0bbff;
-                selection-color: black;
-                font-size: 13px;
-            }
-        """)
-        sched_layout.addWidget(self.calendar)
-
-        self.day_lessons = QListWidget()
-        sched_layout.addWidget(self.day_lessons)
-
-        self.calendar.clicked.connect(self.show_day_schedule)
-        self.pages.addWidget(page_schedule)
-
-    def mark_schedule_dates(self):
-        if not hasattr(self, "schedule_data"):
-            return
-
-        highlight_format = QTextCharFormat()
-        highlight_format.setBackground(QColor("#e0bbff"))
-
-        for item in self.schedule_data:
-            date_str = item.get("date") if isinstance(item, dict) else item
-            if date_str:
-                d = QDate.fromString(date_str, "yyyy-MM-dd")
-                if d.isValid():
-                    self.calendar.setDateTextFormat(d, highlight_format)
-
-    def show_day_schedule(self, date):
-        self.day_lessons.clear()
-        selected_date = date.toString("yyyy-MM-dd")
-
-        lessons = []
-        for item in self.schedule_data:
-            if isinstance(item, dict) and item.get("date") == selected_date:
-                lessons.append(item.get("lesson", "Без названия"))
-            elif item == selected_date:
-                lessons.append("Урок")
-
-        self.day_lessons.addItems(lessons if lessons else ["Нет занятий"])
-
+    # ---- data loading ----
     def load_all_data(self):
         self.btn_refresh.setEnabled(False)
         self.btn_refresh.setText("Обновление...")
@@ -389,43 +375,159 @@ class MyStatApp(QMainWindow):
         self.btn_refresh.setText("Обновить")
 
     def _fetch_data(self, monday: str):
+        # собираем расписание на 8 недель вперёд (можно поменять число)
+        all_schedule = []
+        start = datetime.strptime(monday, "%Y-%m-%d")
+
+        for i in range(8):  # 8 недель
+            week_start = start + timedelta(weeks=i)
+            week_str = week_start.strftime("%Y-%m-%d")
+            week_schedule = self.sdk.get_schedule(week_str)
+            if week_schedule:
+                all_schedule.extend(week_schedule)
+
         return {
             "homework": self.sdk.get_homework(),
+            "homeworks_list": self.sdk.get_homeworks_list(),
             "avg": self.sdk.get_average_score(),
             "leaders": self.sdk.get_leaderboard(),
             "attendance": self.sdk.get_attendance(),
-            "schedule": self.sdk.get_schedule(monday),
+            "schedule": all_schedule,  
         }
 
+
+
+    # ---- UI update ----
     def _update_ui(self, data):
+        # cards
         hw = data.get("homework", [0, 0])
         self.card_tasks.set_value(hw[0])
         self.card_overdue.set_value(hw[1])
         self.card_avg.set_value(data.get("avg", "—"))
         self.card_attendance.set_value(data.get("attendance", "—"))
 
+        # leaders
         self.leader_list.clear()
         self.leader_list.addItems(data.get("leaders", ["Нет данных"]))
 
-        self.schedule_data = data.get("schedule", [])
-        self.mark_schedule_dates()
+        # parse schedule -> fill self._schedule_by_date (date_str -> list[str])
+        raw_schedule = data.get("schedule", []) or []
+        mapped = {}
+        for item in raw_schedule:
+            # item может быть строкой "YYYY-MM-DD — subject" или dict с полем date/subject
+            if isinstance(item, dict):
+                date = item.get("date")
+                # пытаемся получить человека/предмет
+                subject = item.get("subject") or item.get("lesson") or item.get("theme") or ""
+                line = f"{date} — {subject}" if subject else date
+            elif isinstance(item, str):
+                # ожидаем формат "YYYY-MM-DD ...", разбираем первое поле как дату
+                parts = item.split("—", 1)
+                if len(parts) == 2:
+                    date = parts[0].strip()
+                    subject = parts[1].strip()
+                    line = f"{subject}"
+                else:
+                    tokens = item.split()
+                    date = tokens[0] if tokens else ""
+                    subject = " ".join(tokens[1:]) if len(tokens) > 1 else ""
+                    line = subject or item
+            else:
+                continue
 
+            if not date:
+                continue
+            mapped.setdefault(date, []).append(line)
+
+        # сохраняем в атрибут для использования при клике
+        self._schedule_by_date = mapped
+
+        # подсветка дат
+        self.highlight_schedule_dates()
+
+        # обновляем метку месяца (если пользователь на странице)
+        self.update_month_label()
+
+        # домашки (карточки)
         while self.hw_container.count():
             item = self.hw_container.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
-        homeworks = self.sdk.get_homeworks_list()
-        cols = 4
-        row, col = 0, 0
+        homeworks = data.get("homeworks_list", [])
 
+        cols = 4
+        row = 0
+        col = 0
         for hw in homeworks:
-            card = HomeworkCard(hw["id"], hw["title"], self._open_hw_dialog)
+            title = hw.get("title") if isinstance(hw, dict) else str(hw)
+            hw_id = hw.get("id") if isinstance(hw, dict) else None
+            card = HomeworkCard(hw_id, title, self._open_hw_dialog)
             self.hw_container.addWidget(card, row, col)
             col += 1
             if col >= cols:
                 col = 0
                 row += 1
+
+        # сразу показать уроки для текущей выбранной даты
+        self.show_day_lessons()
+
+    # ---- calendar helper ----
+    def highlight_schedule_dates(self):
+        """Подсветить все даты, для которых есть записи в self._schedule_by_date."""
+        # очищаем предыдущие форматы (заниженно — чищу всё календаря)
+        default_fmt = QTextCharFormat()
+        # получить диапазон текущего отображаемого месяца и очистить только его — но проще очистить всё:
+        # NOTE: setDateTextFormat(QDate(), fmt) не очищает — применяем для каждой существующей даты замену.
+        # Для простоты — перезапишем только даты из self._schedule_by_date
+        # (Если нужно, можно хранить старые форматы и восстанавливать)
+        highlight = QTextCharFormat()
+        highlight.setBackground(QColor("#e6f0ff"))
+        highlight.setForeground(QColor("#000000"))
+        highlight.setFontWeight(QFont.Bold)
+
+        # Сначала очистим формат для всех известных дат (чтобы избежать наслоений)
+        # (проходим календарь: 1..31 текущего года/месяца — но это тяжеловато, пропустим)
+        # Просто установим формат для нужных дат
+        for date_str in self._schedule_by_date.keys():
+            try:
+                d = datetime.strptime(date_str, "%Y-%m-%d").date()
+                qd = QDate(d.year, d.month, d.day)
+                self.calendar.setDateTextFormat(qd, highlight)
+            except Exception as e:
+                # если парсинг не удался — пропустить
+                # print("highlight parse error:", e)
+                continue
+
+    def show_day_lessons(self):
+        """Показать уроки за выбранный день (день, не неделя)."""
+        self.schedule_list.clear()
+        sel = self.calendar.selectedDate()
+        date_str = sel.toString("yyyy-MM-dd")
+        lessons = self._schedule_by_date.get(date_str, [])
+        if lessons:
+            # уроки уже содержат описания (subject lines), добавляем красиво
+            self.schedule_list.addItems(lessons)
+        else:
+            self.schedule_list.addItem("Нет уроков")
+
+    def shift_month(self, offset: int):
+        """Сдвинуть отображаемый месяц в календаре (offset в месяцах)."""
+        cur = self.calendar.selectedDate()
+        new = cur.addMonths(offset)
+        self.calendar.setSelectedDate(new)
+        # прокрутка view: QCalendarWidget автоматически покажет нужный месяц при установке selectedDate
+        self.update_month_label()
+        # при смене месяца можно заново подсветить даты (подсветка основана на полных датах, потому ничего не нужно делать)
+
+    def update_month_label(self):
+        sel = self.calendar.selectedDate()
+        # "MMMM yyyy" выдаёт полный месяц (на локале календаря)
+        txt = sel.toString("MMMM yyyy")
+        # приведём первую букву в верхний регистр (обычно уже так)
+        if txt:
+            txt = txt[0].upper() + txt[1:]
+        self.month_label.setText(txt)
 
     def _open_hw_dialog(self, hw_id, hw_title):
         dialog = HomeworkDialog(hw_id, hw_title, self.sdk, self)
@@ -437,7 +539,7 @@ class MyStatApp(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    sdk = MyStatSDK("foros_md93", "gHrh7w*6")
+    sdk = MyStatSDK("foros_md93", "gHrh7w*6")  # аккуратно с логином/паролем
     window = MyStatApp(sdk)
     window.show()
     sys.exit(app.exec_())
